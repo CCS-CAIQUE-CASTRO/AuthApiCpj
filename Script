@@ -1,0 +1,42 @@
+const nowSec = Math.floor(Date.now() / 1000);
+const safety = 60;
+const token = pm.environment.get('jwt_token');
+const exp = parseInt(pm.environment.get('jwt_exp') || '0', 10);
+
+if (token && exp > (nowSec + safety)) {
+  return;
+}
+
+// precisa logar de novo
+const baseUrl = pm.environment.get('base_url');
+const login = pm.environment.get('api_login');
+const password = pm.environment.get('api_password');
+if (!baseUrl || !login || !password) {
+  throw new Error('Faltam variáveis: base_url, api_login, api_password.');
+}
+
+pm.sendRequest({
+  url: `${baseUrl}/api/v2/login`,
+  method: 'POST',
+  header: { 'Content-Type': 'application/json' },
+  body: { mode: 'raw', raw: JSON.stringify({ login, password }) }
+}, (err, res) => {
+  if (err || !res || res.code >= 400) {
+    throw new Error(`Falha ao autenticar: ${err ? err.message : res.code}`);
+  }
+  const json = res.json();
+  const newToken = json.token;
+  pm.environment.set('jwt_token', newToken);
+
+  function b64urlDecode(str) {
+    str = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4) str += '=';
+    return atob(str);
+  }
+  try {
+    const payload = JSON.parse(b64urlDecode(newToken.split('.')[1]));
+    pm.environment.set('jwt_exp', String(payload.exp || 0));
+  } catch (e) {
+    pm.environment.set('jwt_exp', '0');
+  }
+});
